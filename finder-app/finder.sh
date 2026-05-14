@@ -1,3 +1,5 @@
+#!/bin/bash
+
 if [ -d $1 ] # file exists and is a directory
 then
     filesdir=$1
