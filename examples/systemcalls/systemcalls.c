@@ -1,9 +1,11 @@
 #include "systemcalls.h"
+#include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <stdarg.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -24,10 +26,7 @@ bool do_system(const char *cmd)
 
     int sys_return = system(cmd);
 
-    if(sys_return == NULL || sys_return == -1) // handle failed call to system()
-    {
-        return false;
-    }
+    if(!sys_return) { return false; } // handle failed call to system()
 
     return true;
 }
@@ -70,31 +69,32 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */  
-    pid_t child_pid;
-    child_pid = fork();
+    pid_t child_pid = fork();
 
     if(child_pid == -1)
     {
         perror("fork");
+        va_end(args);
+        return false;
     }
 
-    if(!child_pid) // successful fork inside child proccess returns 0, only run execv from child
+    if(child_pid == 0) // successful fork inside child process returns 0
     {
-        int ret;
-        ret = execv(command[0], command);
-        if(ret == -1)
-        {
-            perror("execv");
-        }
+        execv(command[0], command);
+        _exit(EXIT_FAILURE);
     }
-    
+
     int status;
-    pid_t child_wait;
-    child_wait = waitpid(child_pid, &status, WNOHANG);
+    pid_t child_wait = waitpid(child_pid, &status, 0);
+    if(child_wait == -1)
+    {
+        perror("waitpid");
+        va_end(args);
+        return false;
+    }
 
     va_end(args);
-
-    return true;
+    return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
 /**
@@ -146,7 +146,11 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     
     int status;
     pid_t child_wait;
-    child_wait = waitpid(child_pid, &status, WNOHANG);
+    child_wait = wait(&status);
+    if(child_wait == -1)
+    {
+        perror("wait");
+    }
 
     va_end(args);
 
