@@ -1,4 +1,9 @@
 #include "systemcalls.h"
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,6 +21,13 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+
+    int sys_return = system(cmd);
+
+    if(sys_return == NULL || sys_return == -1) // handle failed call to system()
+    {
+        return false;
+    }
 
     return true;
 }
@@ -57,7 +69,28 @@ bool do_exec(int count, ...)
  *   (first argument to execv), and use the remaining arguments
  *   as second argument to the execv() command.
  *
-*/
+*/  
+    pid_t child_pid;
+    child_pid = fork();
+
+    if(child_pid == -1)
+    {
+        perror("fork");
+    }
+
+    if(!child_pid) // successful fork inside child proccess returns 0, only run execv from child
+    {
+        int ret;
+        ret = execv(command[0], command);
+        if(ret == -1)
+        {
+            perror("execv");
+        }
+    }
+    
+    int status;
+    pid_t child_wait;
+    child_wait = waitpid(child_pid, &status, WNOHANG);
 
     va_end(args);
 
@@ -92,6 +125,28 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    pid_t child_pid;
+    int fd = open(outputfile, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+
+    if(fd < 0) { perror("open"); abort(); }
+
+    switch(child_pid = fork())
+    {
+        case -1:
+            perror("fork");
+            abort();
+        case 0:
+            if(dup2(fd, 1) < 0) { perror("dup2"); abort(); }
+            close(fd);
+            int ret = execv(command[0], command);
+            if(ret == -1) { perror("execv"); }
+        default:
+            close(fd);
+    }
+    
+    int status;
+    pid_t child_wait;
+    child_wait = waitpid(child_pid, &status, WNOHANG);
 
     va_end(args);
 
