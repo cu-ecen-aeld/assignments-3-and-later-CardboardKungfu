@@ -26,7 +26,7 @@ bool do_system(const char *cmd)
 
     int sys_return = system(cmd);
 
-    if(!sys_return) { return false; } // handle failed call to system()
+    if(sys_return == -1) { return false; } // handle failed call to system()
 
     return true;
 }
@@ -145,14 +145,14 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     }
     
     int status;
-    pid_t child_wait;
-    child_wait = wait(&status);
+    pid_t child_wait = waitpid(child_pid, &status, 0);
     if(child_wait == -1)
     {
-        perror("wait");
+        perror("waitpid");
+        va_end(args);
+        return false;
     }
 
     va_end(args);
-
     return true;
 }
