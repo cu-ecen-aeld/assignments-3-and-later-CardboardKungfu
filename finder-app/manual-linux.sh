@@ -86,19 +86,51 @@ ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
-TOOLCHAIN_ROOT=/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc
-# Prefer /lib, fall back to /lib64 or search the toolchain if needed
-if [ -f "${TOOLCHAIN_ROOT}/lib/ld-linux-aarch64.so.1" ]; then
-    LD_LINUX_AARCH64="${TOOLCHAIN_ROOT}/lib/ld-linux-aarch64.so.1"
-elif [ -f "${TOOLCHAIN_ROOT}/lib64/ld-linux-aarch64.so.1" ]; then
-    LD_LINUX_AARCH64="${TOOLCHAIN_ROOT}/lib64/ld-linux-aarch64.so.1"
-else
-    LD_LINUX_AARCH64=$(find "${TOOLCHAIN_ROOT}" -type f -name 'ld-linux-aarch64.so.1' 2>/dev/null | head -n1 || true)
+# Dynamically determine toolchain sysroot from cross-compiler
+TOOLCHAIN_SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot 2>/dev/null || echo "")
+if [ -z "${TOOLCHAIN_SYSROOT}" ]; then
+    # Fallback: try to find libc path relative to cross-compiler
+    CROSS_CC_PATH=$(which ${CROSS_COMPILE}gcc 2>/dev/null || true)
+    if [ -n "${CROSS_CC_PATH}" ]; then
+        # Deduce sysroot from compiler path (e.g., /path/to/bin/aarch64-none-linux-gnu-gcc -> /path/to)
+        TOOLCHAIN_SYSROOT=$(cd "$(dirname "${CROSS_CC_PATH}")/.." && pwd)
+    fi
 fi
 
-LIBM=${TOOLCHAIN_ROOT}/lib64/libm.so.6
-LIBRESOLVE=${TOOLCHAIN_ROOT}/lib64/libresolv.so.2
-LIBC=${TOOLCHAIN_ROOT}/lib64/libc.so.6
+# Locate ld-linux-aarch64.so.1
+LD_LINUX_AARCH64=""
+if [ -n "${TOOLCHAIN_SYSROOT}" ]; then
+    # Search common lib/lib64 paths under sysroot
+    for libdir in lib lib64 aarch64-none-linux-gnu/libc/lib aarch64-none-linux-gnu/libc/lib64; do
+        if [ -f "${TOOLCHAIN_SYSROOT}/${libdir}/ld-linux-aarch64.so.1" ]; then
+            LD_LINUX_AARCH64="${TOOLCHAIN_SYSROOT}/${libdir}/ld-linux-aarch64.so.1"
+            break
+        fi
+    done
+fi
+
+# Fallback: hardcoded local path (for local development)
+if [ -z "${LD_LINUX_AARCH64}" ] && [ -f "/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib/ld-linux-aarch64.so.1" ]; then
+    LD_LINUX_AARCH64="/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib/ld-linux-aarch64.so.1"
+fi
+
+# Locate standard C libraries
+LIBM=""
+LIBRESOLVE=""
+LIBC=""
+if [ -n "${TOOLCHAIN_SYSROOT}" ]; then
+    for libdir in lib64 lib aarch64-none-linux-gnu/libc/lib64; do
+        [ -z "${LIBM}" ] && [ -f "${TOOLCHAIN_SYSROOT}/${libdir}/libm.so.6" ] && LIBM="${TOOLCHAIN_SYSROOT}/${libdir}/libm.so.6"
+        [ -z "${LIBRESOLVE}" ] && [ -f "${TOOLCHAIN_SYSROOT}/${libdir}/libresolv.so.2" ] && LIBRESOLVE="${TOOLCHAIN_SYSROOT}/${libdir}/libresolv.so.2"
+        [ -z "${LIBC}" ] && [ -f "${TOOLCHAIN_SYSROOT}/${libdir}/libc.so.6" ] && LIBC="${TOOLCHAIN_SYSROOT}/${libdir}/libc.so.6"
+    done
+fi
+
+# Fallback to local hardcoded paths
+TOOLCHAIN_ROOT_FALLBACK=/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc
+[ -z "${LIBM}" ] && [ -f "${TOOLCHAIN_ROOT_FALLBACK}/lib64/libm.so.6" ] && LIBM="${TOOLCHAIN_ROOT_FALLBACK}/lib64/libm.so.6"
+[ -z "${LIBRESOLVE}" ] && [ -f "${TOOLCHAIN_ROOT_FALLBACK}/lib64/libresolv.so.2" ] && LIBRESOLVE="${TOOLCHAIN_ROOT_FALLBACK}/lib64/libresolv.so.2"
+[ -z "${LIBC}" ] && [ -f "${TOOLCHAIN_ROOT_FALLBACK}/lib64/libc.so.6" ] && LIBC="${TOOLCHAIN_ROOT_FALLBACK}/lib64/libc.so.6"
 
 mkdir -p "${OUTDIR}/rootfs/lib" "${OUTDIR}/rootfs/lib64"
 if [ -n "${LD_LINUX_AARCH64}" ] && [ -f "${LD_LINUX_AARCH64}" ]; then
