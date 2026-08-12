@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 if [ -d $1 ] # file exists and is a directory
 then
