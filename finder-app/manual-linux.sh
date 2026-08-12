@@ -7,7 +7,6 @@ set -u
 
 OUTDIR=/tmp/aeld
 KERNEL_REPO=git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
-# KERNEL_REPO=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 KERNEL_VERSION=v5.15.163
 BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
@@ -87,15 +86,31 @@ ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
-LD_LINUX_AARCH64=/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib/ld-linux-aarch64.so.1
-LIBM=/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libm.so.6
-LIBRESOLVE=/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libresolv.so.2
-LIBC=/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libc.so.6
+TOOLCHAIN_ROOT=/home/jed/arm-cross-compiler/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc
+# Prefer /lib, fall back to /lib64 or search the toolchain if needed
+if [ -f "${TOOLCHAIN_ROOT}/lib/ld-linux-aarch64.so.1" ]; then
+    LD_LINUX_AARCH64="${TOOLCHAIN_ROOT}/lib/ld-linux-aarch64.so.1"
+elif [ -f "${TOOLCHAIN_ROOT}/lib64/ld-linux-aarch64.so.1" ]; then
+    LD_LINUX_AARCH64="${TOOLCHAIN_ROOT}/lib64/ld-linux-aarch64.so.1"
+else
+    LD_LINUX_AARCH64=$(find "${TOOLCHAIN_ROOT}" -type f -name 'ld-linux-aarch64.so.1' 2>/dev/null | head -n1 || true)
+fi
 
-cp "${LD_LINUX_AARCH64}" "${OUTDIR}/rootfs/lib64"
-cp "${LIBM}" "${OUTDIR}/rootfs/lib64"
-cp "${LIBRESOLVE}" "${OUTDIR}/rootfs/lib64"
-cp "${LIBC}" "${OUTDIR}/rootfs/lib64"
+LIBM=${TOOLCHAIN_ROOT}/lib64/libm.so.6
+LIBRESOLVE=${TOOLCHAIN_ROOT}/lib64/libresolv.so.2
+LIBC=${TOOLCHAIN_ROOT}/lib64/libc.so.6
+
+mkdir -p "${OUTDIR}/rootfs/lib" "${OUTDIR}/rootfs/lib64"
+if [ -n "${LD_LINUX_AARCH64}" ] && [ -f "${LD_LINUX_AARCH64}" ]; then
+    echo "Copying loader ${LD_LINUX_AARCH64} -> ${OUTDIR}/rootfs/lib/"
+    cp "${LD_LINUX_AARCH64}" "${OUTDIR}/rootfs/lib/"
+else
+    echo "Warning: ld-linux-aarch64.so.1 not found in toolchain (${TOOLCHAIN_ROOT}); init may fail if busybox is dynamically linked"
+fi
+
+cp "${LIBM}" "${OUTDIR}/rootfs/lib64" || true
+cp "${LIBRESOLVE}" "${OUTDIR}/rootfs/lib64" || true
+cp "${LIBC}" "${OUTDIR}/rootfs/lib64" || true
 
 # TODO: Make device nodes
 sudo mknod -m 666 ${OUTDIR}/rootfs/dev/null c 1 3
@@ -111,7 +126,7 @@ make CROSS_COMPILE=${CROSS_COMPILE} writer
 cp writer ${OUTDIR}/rootfs/home
 cp finder.sh ${OUTDIR}/rootfs/home
 cp finder-test.sh ${OUTDIR}/rootfs/home
-mkdir -p ${OUTDIR}/rootfs/home/conf/ && cp conf/username.txt conf/assignment.txt ${OUTDIR}/rootfs/home
+mkdir -p ${OUTDIR}/rootfs/home/conf/ && cp conf/username.txt conf/assignment.txt ${OUTDIR}/rootfs/home/conf
 cp autorun-qemu.sh ${OUTDIR}/rootfs/home
 
 # TODO: Chown the root directory
